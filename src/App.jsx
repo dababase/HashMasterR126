@@ -25,6 +25,25 @@ function sortedEntries(entries, categories, scores, sortOrder) {
   return [...entries].sort((a, b) => a.entry_number - b.entry_number);
 }
 
+function timeAgo(date) {
+  if (!date) return '';
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (seconds < 5) return 'just now';
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes === 1) return '1 min ago';
+  return `${minutes} min ago`;
+}
+
+function saveStatusLabel(status, lastSavedAt) {
+  switch (status) {
+    case 'saving': return 'Saving…';
+    case 'error': return 'Save failed — check connection';
+    case 'saved': return `Saved ${timeAgo(lastSavedAt)}`;
+    default: return '';
+  }
+}
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [ready, setReady] = useState(false);
@@ -44,6 +63,8 @@ export default function App() {
   const [notes, setNotes] = useState({});
   const [openEntry, setOpenEntry] = useState(null);
   const [sortOrder, setSortOrder] = useState('rank');
+  const [saveStatus, setSaveStatus] = useState('idle');
+  const [lastSavedAt, setLastSavedAt] = useState(null);
 
   const ejRef = useRef(null);
   const scoresRef = useRef({});
@@ -51,6 +72,8 @@ export default function App() {
   const dirty = useRef(new Set());
   const timers = useRef({});
   const retries = useRef({});
+  const inFlight = useRef(0);
+  const hardFailed = useRef(new Set());
 
   useEffect(() => { scoresRef.current = scores; }, [scores]);
   useEffect(() => { notesRef.current = notes; }, [notes]);
@@ -74,6 +97,14 @@ export default function App() {
     const onVis = () => { if (document.visibilityState === 'visible') dirty.current.forEach((k) => flush(k)); };
     document.addEventListener('visibilitychange', onVis);
     return () => { clearInterval(iv); document.removeEventListener('visibilitychange', onVis); };
+  }, []);
+
+  // Tick every 15s so "Saved X ago" stays fresh without a real state change
+  useEffect(() => {
+    const iv = setInterval(() => {
+      setLastSavedAt((prev) => (prev ? new Date(prev.getTime()) : prev));
+    }, 15000);
+    return () => clearInterval(iv);
   }, []);
 
   async function bootstrap(s) {
@@ -167,6 +198,9 @@ export default function App() {
     if (!ejRef.current) return;
     const ejId = ejRef.current.id;
     dirty.current.delete(key);
+    inFlight.current += 1;
+    setSaveStatus('saving');
+    let ok = true;
     try {
       if (key.startsWith('s:')) {
         const [eid, cid] = key.slice(2).split('|');
@@ -181,10 +215,28 @@ export default function App() {
         if (e) throw e;
       }
       retries.current[key] = 0;
+      hardFailed.current.delete(key);
     } catch (e) {
+      ok = false;
       const n = (retries.current[key] || 0) + 1;
       retries.current[key] = n;
-      if (n <= 5) { dirty.current.add(key); setTimeout(() => flush(key), Math.min(1000 * Math.pow(2, n), 15000)); }
+      if (n <= 5) {
+        dirty.current.add(key);
+        setTimeout(() => flush(key), Math.min(1000 * Math.pow(2, n), 15000));
+      } else {
+        // Retries exhausted — stop hammering Supabase, but keep this flagged
+        // so the status indicator doesn't quietly report "saved" for a write
+        // that never actually landed.
+        hardFailed.current.add(key);
+      }
+    } finally {
+      inFlight.current -= 1;
+    }
+    if (hardFailed.current.size > 0 || !ok) {
+      setSaveStatus('error');
+    } else if (inFlight.current === 0 && dirty.current.size === 0) {
+      setSaveStatus('saved');
+      setLastSavedAt(new Date());
     }
   }
 
@@ -293,6 +345,11 @@ export default function App() {
         <div className="eyebrow">HASH MASTERS CHALLENGE</div>
         <h1>Score the entries</h1>
         <p className="sub">Blind — entry numbers only. Tap an entry to score it.</p>
+        {saveStatus !== 'idle' && (
+          <div className={'save-status' + (saveStatus === 'error' ? ' save-status-error' : '')}>
+            {saveStatusLabel(saveStatus, lastSavedAt)}
+          </div>
+        )}
 
         <div className="sort-toggle">
           <button className={'sort-opt' + (sortOrder === 'rank' ? ' active' : '')} onClick={() => setSortOrder('rank')}>Ranking</button>
@@ -324,6 +381,8 @@ export default function App() {
             scores={scores}
             note={notes[openEntry] || ''}
             disabled={busy}
+            saveStatus={saveStatus}
+            lastSavedAt={lastSavedAt}
             onCommitScore={(cid, v) => setValue(openEntry, cid, v)}
             onCommitCategoryNote={(cid, n) => setScoreNote(openEntry, cid, n)}
             onCommitEntryNote={(n) => setEntryNote(openEntry, n)}
@@ -346,14 +405,21 @@ export default function App() {
   );
 }
 
-function EntryModal({ entry, categories, scores, note, disabled, onCommitScore, onCommitCategoryNote, onCommitEntryNote, onClose }) {
+function EntryModal({ entry, categories, scores, note, disabled, saveStatus, lastSavedAt, onCommitScore, onCommitCategoryNote, onCommitEntryNote, onClose }) {
   if (!entry) return null;
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Entry #{entry.entry_number}</h2>
-          <button className="close-btn" onClick={onClose} aria-label="Close">×</button>
+          <div className="modal-header-right">
+            {saveStatus !== 'idle' && (
+              <span className={'save-status' + (saveStatus === 'error' ? ' save-status-error' : '')}>
+                {saveStatusLabel(saveStatus, lastSavedAt)}
+              </span>
+            )}
+            <button className="close-btn" onClick={onClose} aria-label="Close">×</button>
+          </div>
         </div>
         <div className="modal-body">
           {categories.map((c) => {
