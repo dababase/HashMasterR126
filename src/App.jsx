@@ -233,8 +233,6 @@ export default function App() {
 
   return (
     <div className="wrap">
-      <div className="hero"><img src="https://2026-mothership-meltdown-melt.vercel.app/mothership.jpeg" alt="" /><div className="mask" /></div>
-
       {step === 'code' && (<>
         <div className="eyebrow">Blind Judging</div>
         <h1>Enter event code</h1>
