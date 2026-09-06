@@ -38,7 +38,8 @@ function timeAgo(date) {
 function saveStatusLabel(status, lastSavedAt) {
   switch (status) {
     case 'saving': return 'Saving…';
-    case 'error': return 'Save failed — check connection';
+    case 'retrying': return 'Save failed — retrying…';
+    case 'error': return 'Save failed — reopen this entry to try again';
     case 'saved': return `Saved ${timeAgo(lastSavedAt)}`;
     default: return '';
   }
@@ -232,8 +233,10 @@ export default function App() {
     } finally {
       inFlight.current -= 1;
     }
-    if (hardFailed.current.size > 0 || !ok) {
+    if (hardFailed.current.size > 0) {
       setSaveStatus('error');
+    } else if (!ok) {
+      setSaveStatus('retrying');
     } else if (inFlight.current === 0 && dirty.current.size === 0) {
       setSaveStatus('saved');
       setLastSavedAt(new Date());
@@ -306,6 +309,9 @@ export default function App() {
 
   return (
     <div className="wrap">
+      <div className="logo-header">
+        <img src="/hash-masters-logo.png" alt="Hash Masters Challenge" className="logo-header-img" />
+      </div>
       {step === 'code' && (<>
         <div className="eyebrow">Blind Judging</div>
         <h1>Enter event code</h1>
@@ -346,7 +352,7 @@ export default function App() {
         <h1>Score the entries</h1>
         <p className="sub">Blind — entry numbers only. Tap an entry to score it.</p>
         {saveStatus !== 'idle' && (
-          <div className={'save-status' + (saveStatus === 'error' ? ' save-status-error' : '')}>
+          <div className={'save-status' + ((saveStatus === 'error' || saveStatus === 'retrying') ? ' save-status-error' : '')}>
             {saveStatusLabel(saveStatus, lastSavedAt)}
           </div>
         )}
@@ -414,7 +420,7 @@ function EntryModal({ entry, categories, scores, note, disabled, saveStatus, las
           <h2>Entry #{entry.entry_number}</h2>
           <div className="modal-header-right">
             {saveStatus !== 'idle' && (
-              <span className={'save-status' + (saveStatus === 'error' ? ' save-status-error' : '')}>
+              <span className={'save-status' + ((saveStatus === 'error' || saveStatus === 'retrying') ? ' save-status-error' : '')}>
                 {saveStatusLabel(saveStatus, lastSavedAt)}
               </span>
             )}
