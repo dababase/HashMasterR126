@@ -469,7 +469,7 @@ function EntryModal({ entry, categories, scores, note, disabled, saveStatus, las
                   disabled={disabled}
                 />
                 <CategoryDescription text={c.description} />
-                <div className="note-label">Note (optional)</div>
+                <div className="note-label">Notes (optional)</div>
                 <textarea value={(cell && cell.note) || ''} onChange={(e) => onCommitCategoryNote(c.id, e.target.value)} />
               </div>
             );
