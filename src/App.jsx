@@ -25,6 +25,35 @@ function sortedEntries(entries, categories, scores, sortOrder) {
   return [...entries].sort((a, b) => a.entry_number - b.entry_number);
 }
 
+// Splits on the first sentence-ending punctuation so the modal can show a
+// short teaser with the rest tucked behind a "more" toggle.
+function splitFirstSentence(text) {
+  if (!text) return [null, null];
+  const match = text.match(/^(.*?[.?!])(?:\s+(.*))?$/s);
+  if (!match) return [text, null];
+  return [match[1], match[2] || null];
+}
+
+function CategoryDescription({ text }) {
+  const [expanded, setExpanded] = useState(false);
+  const [first, rest] = splitFirstSentence(text);
+  if (!first) return null;
+  return (
+    <div className="cat-desc">
+      <span>{first}</span>
+      {rest && (
+        <>
+          {' '}
+          <button type="button" className="cat-desc-toggle" onClick={() => setExpanded((v) => !v)}>
+            {expanded ? 'less' : 'more'}
+          </button>
+          {expanded && <div className="cat-desc-rest">{rest}</div>}
+        </>
+      )}
+    </div>
+  );
+}
+
 function timeAgo(date) {
   if (!date) return '';
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
@@ -439,6 +468,7 @@ function EntryModal({ entry, categories, scores, note, disabled, saveStatus, las
                   onCommit={(v) => onCommitScore(c.id, v)}
                   disabled={disabled}
                 />
+                <CategoryDescription text={c.description} />
                 <div className="note-label">Note (optional)</div>
                 <textarea value={(cell && cell.note) || ''} onChange={(e) => onCommitCategoryNote(c.id, e.target.value)} />
               </div>
